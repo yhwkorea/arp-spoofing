@@ -268,7 +268,6 @@ int main(int argc, char* argv[]) {
             Ip sip = Ip(ntohl(arp->sip_));
             Ip tip = Ip(ntohl(arp->tip_));
             Mac smac = arp->smac_;
-            Mac tmac = arp->tmac_;
         
             for (auto& conn : connections) {
                 // ✅ [1] target이 sender에게 진짜 MAC으로 Reply함 → 감염 해제 가능성
