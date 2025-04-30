@@ -2,6 +2,7 @@
 #include <arpa/inet.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <unistd.h>
 #include <pcap.h>
 #include "ethhdr.h"
 #include "arphdr.h"
