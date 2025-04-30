@@ -8,8 +8,8 @@
 #include "arphdr.h"
 using namespace std;
 
-#define ENABLE_PERIODIC_REINFECTION 0
-#define REINFECTION_PERIOD 5
+#define ENABLE_PERIODIC_REINFECTION 1
+#define REINFECTION_PERIOD 65
 
 #pragma pack(push, 1)
 struct EthArpPacket final {
@@ -306,7 +306,7 @@ int main(int argc, char* argv[]) {
         
                     std::cout << "[!] ARP Request 감지: "
                               << std::string(sip) << " → " << std::string(tip)
-                              << " (sender가 재학습 시도 중)" << std::endl;
+                               << std::endl;
         
                     EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
