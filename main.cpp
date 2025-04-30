@@ -146,8 +146,8 @@ void* reinfect_loop(void* arg) {
                 false
             );
             send_arp_packet(args->handle, reinfect);
-            std::cout << "[*] Periodic Reinfected: sender " << conn.sender_ip
-                      << " -> target " << conn.target_ip << std::endl;
+            std::cout << "[*] Periodic Reinfected: sender " << string(conn.sender_ip)
+                      << " -> target " << string(conn.target_ip) << std::endl;
         }
     }
     return nullptr;
