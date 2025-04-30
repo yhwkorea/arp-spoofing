@@ -1,5 +1,5 @@
 LDLIBS=-lpcap
-
+CXXFLAGS = -Wall -O2 -std=c++11
 all: arp-spoof
 
 
