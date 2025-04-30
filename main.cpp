@@ -25,6 +25,18 @@ struct Connection {
     Mac target_mac;
 };
 
+struct IpHdr final {
+	uint8_t vhl, tos;
+	uint16_t len, id, off;
+	uint8_t ttl, p;
+	uint16_t sum;
+	uint32_t sip_, dip_;
+
+	Ip sip() const { return Ip(ntohl(sip_)); }
+	Ip dip() const { return Ip(ntohl(dip_)); }
+};
+
+
 void usage() {
     printf("syntax : arp-spoofing <interface> <sender ip> <target ip> [<sender ip 2> <target ip 2> ...]\n");
     printf("sample : arp-spoofing wlan0 192.168.10.2 192.168.10.1\n");
