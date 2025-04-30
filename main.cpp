@@ -8,7 +8,7 @@
 using namespace std;
 
 //reinfection value
-#define ENABLE_PERIODIC_REINFECTION 1
+#define ENABLE_PERIODIC_REINFECTION 0
 #define REINFECTION_PERIOD 5
 
 #pragma pack(push, 1)
