@@ -8,8 +8,8 @@
 #include "arphdr.h"
 using namespace std;
 
-#define ENABLE_PERIODIC_REINFECTION 1
-#define REINFECTION_PERIOD 65
+#define ENABLE_PERIODIC_REINFECTION 0
+#define REINFECTION_PERIOD 10
 
 #pragma pack(push, 1)
 struct EthArpPacket final {
