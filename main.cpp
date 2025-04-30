@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
     string attacker_ip = get_attacker_ip(dev);
 
     char errbuf[PCAP_ERRBUF_SIZE];
-    pcap_t* handle = pcap_open_live(dev, BUFSIZ, 1, 1, errbuf);
+    pcap_t* handle = pcap_open_live(dev, 65535, 1, 1, errbuf);
     if (handle == nullptr) {
         fprintf(stderr, "couldn't open device %s(%s)\n", dev, errbuf);
         return EXIT_FAILURE;
