@@ -13,7 +13,7 @@ ip.o: ip.h ip.cpp
 
 mac.o : mac.h mac.cpp
 
-send-arp-test: main.o arphdr.o ethhdr.o ip.o mac.o
+arp-spoof: main.o arphdr.o ethhdr.o ip.o mac.o
 	$(LINK.cc) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
 clean:
